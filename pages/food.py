@@ -1,8 +1,8 @@
 import streamlit as st
 import random
 
-# 1. 데이터 구성
-# "불안해요" 항목의 이미지를 확실한 '찻잔' 사진으로 변경했습니다.
+# 1. 데이터 구성 (기분: {음식명, 이미지URL, 설명})
+# 안정적인 이미지 로딩을 위해 Unsplash 및 검증된 URL로 교체했습니다.
 food_data = {
     "우울해요 ☁️": {
         "menu": "달콤한 초콜릿 케이크",
@@ -31,7 +31,7 @@ food_data = {
     },
     "불안해요 😟": {
         "menu": "따뜻한 차 & 샌드위치",
-        "img": "https://images.unsplash.com/photo-1597481499750-3e6b22637e12?auto=format&fit=crop&w=800&q=80", 
+        "img": "https://images.unsplash.com/photo-1528740561666-dc2479dc08ab?auto=format&fit=crop&w=800&q=80",
         "desc": "마음을 차분하게 해주는 따뜻한 차 한 잔과 소화가 잘 되는 가벼운 샌드위치를 드세요. 긴장된 몸과 마음을 이완시키는 데 도움을 줄 거예요."
     }
 }
@@ -42,4 +42,37 @@ st.set_page_config(page_title="오늘 뭐 먹지?", page_icon="🍽️")
 # 3. 타이틀 및 헤더
 st.title("🍽️ 기분에 따른 메뉴 추천")
 st.markdown("지금 당신의 **기분**을 알려주세요. 딱 맞는 **음식**을 골라드릴게요!")
-st
+st.divider()
+
+# 4. 사용자 입력 (라디오 버튼)
+mood_list = list(food_data.keys())
+selected_mood = st.radio("현재 기분은 어떤가요?", mood_list, index=None, horizontal=True)
+
+st.write("") # 여백
+
+# 5. 결과 출력
+if selected_mood:
+    recommendation = food_data[selected_mood]
+    
+    with st.container():
+        st.subheader(f"👉 추천 메뉴: {recommendation['menu']}")
+        
+        col1, col2 = st.columns([1, 1.2])
+        
+        with col1:
+            # 이미지 출력 (에러 방지용 설정 추가 없음, URL 자체를 안정적인 것으로 교체함)
+            st.image(recommendation['img'], caption=recommendation['menu'], use_column_width=True)
+            
+        with col2:
+            st.info("💡 **추천 이유**")
+            st.write(recommendation['desc'])
+            
+            cheer_msg = ["맛있게 드세요!", "오늘 하루도 파이팅!", "먹는 게 남는 거예요!", "다이어트는 내일부터!"]
+            st.success(f"🗣️ {random.choice(cheer_msg)}")
+
+else:
+    st.info("위에서 기분을 선택하면 맛있는 음식이 나타납니다! 👆")
+
+# 6. 푸터
+st.divider()
+st.caption("※ 이 앱은 별도의 설치 없이 Streamlit Cloud에서 바로 실행됩니다.")
