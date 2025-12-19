@@ -1,95 +1,123 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import os
 
-# 1. 페이지 설정
+# 페이지 설정
 st.set_page_config(
-    page_title="기온 변화 분석",
+    page_title="110년 기온 변화 분석",
     page_icon="🌡️",
     layout="wide"
 )
 
-# 2. 데이터 로드 함수
+# ---------------------------------------------------------
+# 1. 데이터 로드 및 전처리 함수
+# ---------------------------------------------------------
 @st.cache_data
-def load_data(filename):
-    # 현재 파일의 위치를 기준으로 데이터 파일 경로 설정
+def load_and_process_data(filename):
+    # 현재 파일(app.py)과 같은 위치에서 데이터 찾기
     current_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(current_dir, filename)
 
-    # 파일 존재 여부 확인 (디버깅용 로그 포함)
     if not os.path.exists(file_path):
-        st.error(f"❌ 파일을 찾을 수 없습니다.")
-        st.code(f"찾는 위치: {file_path}")
-        return pd.DataFrame()
+        return None, f"파일을 찾을 수 없습니다: {filename}"
 
     try:
-        # 인코딩 문제 방지를 위한 예외 처리
+        # 1. 파일 읽기 (인코딩 자동 감지 시도)
         try:
             df = pd.read_csv(file_path, encoding='cp949')
         except UnicodeDecodeError:
             df = pd.read_csv(file_path, encoding='utf-8')
 
-        # 컬럼명 공백 정리
+        # 2. 컬럼명 공백 제거
         df.columns = [c.strip() for c in df.columns]
 
-        # 날짜 컬럼 처리
+        # 3. 날짜 컬럼 전처리 (핵심: 특수문자 제거)
+        # 데이터에 "\t1907..." 처럼 탭과 따옴표가 섞여 있어 이를 제거합니다.
         if '날짜' in df.columns:
-            # 특수문자 제거 및 날짜 변환
             df['날짜'] = df['날짜'].astype(str).str.replace('"', '').str.replace('\t', '').str.strip()
             df['날짜'] = pd.to_datetime(df['날짜'], errors='coerce')
-            df['연도'] = df['날짜'].dt.year
-            return df
-        else:
-            st.error("CSV 파일에 '날짜' 컬럼이 없습니다.")
-            return pd.DataFrame()
             
+            # 연도 추출
+            df['연도'] = df['날짜'].dt.year
+            
+            # 결측치(NaN)가 있는 행 제거
+            df = df.dropna(subset=['평균기온(℃)', '연도'])
+            
+            return df, None
+        else:
+            return None, "CSV 파일에 '날짜' 컬럼이 없습니다."
+
     except Exception as e:
-        st.error(f"데이터 로드 중 오류: {e}")
-        return pd.DataFrame()
+        return None, f"데이터 처리 중 오류 발생: {e}"
 
-# 3. 메인 화면 구성
-st.title("🌡️ 지난 110년 기온 변화 시각화")
-st.markdown("데이터를 분석하여 온난화 경향을 확인합니다.")
+# ---------------------------------------------------------
+# 2. 메인 앱 로직
+# ---------------------------------------------------------
+st.title("🌏 지난 110년, 기온은 얼마나 올랐을까?")
+st.markdown("업로드된 기상 데이터를 분석하여 **장기적인 온난화 경향**을 검증합니다.")
 
-# 데이터 불러오기
-target_file = 'test.csv'
-df = load_data(target_file)
+file_name = 'test.csv'
+df, error_msg = load_and_process_data(file_name)
 
-# --- [중요] if-else 구조가 명확해야 합니다 ---
-if not df.empty:
-    # (1) 데이터 가공
+if error_msg:
+    st.error(error_msg)
+    st.info("데이터 파일(test.csv)이 app.py와 같은 폴더에 있는지 확인해주세요.")
+
+elif df is not None:
+    # --- 분석 시작 ---
+    
+    # 1. 연도별 평균 기온 계산
     df_yearly = df.groupby('연도')['평균기온(℃)'].mean().reset_index()
-    df_yearly['10년 이동평균'] = df_yearly['평균기온(℃)'].rolling(window=10).mean()
 
-    # (2) 주요 지표 계산
-    start_year = df_yearly['연도'].min()
-    end_year = df_yearly['연도'].max()
+    # 2. 추세선(Trend Line) 계산 - 선형 회귀 (Polyfit)
+    # x: 연도, y: 평균기온
+    x = df_yearly['연도']
+    y = df_yearly['평균기온(℃)']
     
-    early_temp = df_yearly[df_yearly['연도'] < start_year + 10]['평균기온(℃)'].mean()
-    recent_temp = df_yearly[df_yearly['연도'] > end_year - 10]['평균기온(℃)'].mean()
+    # 1차 방정식 (y = ax + b) 계수 구하기
+    slope, intercept = np.polyfit(x, y, 1)
+    
+    # 추세선 데이터 생성
+    df_yearly['추세선'] = slope * x + intercept
 
-    # (3) 지표 출력
+    # --- 결과 시각화 ---
+
+    # 1. 텍스트 지표 (Metric)
     st.divider()
-    c1, c2, c3 = st.columns(3)
-    c1.metric("분석 기간", f"{start_year} ~ {end_year}년")
+    col1, col2, col3 = st.columns(3)
     
-    if pd.notnull(early_temp) and pd.notnull(recent_temp):
-        diff = recent_temp - early_temp
-        c2.metric("과거 10년 평균", f"{early_temp:.1f} ℃")
-        c3.metric("최근 10년 평균", f"{recent_temp:.1f} ℃", delta=f"{diff:.1f} ℃ 변동")
+    total_years = df_yearly['연도'].max() - df_yearly['연도'].min()
+    temp_change = df_yearly['추세선'].iloc[-1] - df_yearly['추세선'].iloc[0]
+    
+    trend_emoji = "🔥" if slope > 0 else "❄️"
+    trend_text = "상승 중" if slope > 0 else "하강 중"
 
-    # (4) 차트 출력
-    st.divider()
-    st.subheader("📈 연도별 평균 기온과 추세선")
+    with col1:
+        st.metric("분석 기간", f"{total_years}년 ({df_yearly['연도'].min()} ~ {df_yearly['연도'].max()})")
     
-    # 차트 데이터 준비
-    chart_data = df_yearly.set_index('연도')[['평균기온(℃)', '10년 이동평균']]
-    
-    # 색상 지정하여 라인 차트 그리기
-    st.line_chart(chart_data, color=["#DDDDDD", "#FF0000"])
-    
-    st.caption("회색: 연평균 기온 / 빨강: 10년 이동평균(추세)")
+    with col2:
+        st.metric("110년간 기온 변화 (추세 기준)", f"{temp_change:.2f} ℃ {trend_emoji}")
+        
+    with col3:
+        st.metric("연평균 상승률", f"{slope:.4f} ℃/년", f"{trend_text}")
 
-else:
-    # [중요] 이 else는 위쪽의 if not df.empty와 줄이 맞아야 합니다.
-    st.warning("데이터를 불러오지 못했습니다. 파일 위치를 확인해주세요.")
+    # 2. 그래프 그리기
+    st.subheader("📈 연도별 평균 기온과 상승 추세")
+    
+    # 차트용 데이터 정리 (인덱스를 연도로 설정)
+    chart_data = df_yearly.set_index('연도')[['평균기온(℃)', '추세선']]
+    
+    # 라인 차트
+    # 파란색: 실제 연평균 기온 / 빨간색: 추세선
+    st.line_chart(chart_data, color=["#87CEFA", "#FF4500"])
+    
+    st.caption(f"""
+    - **하늘색 선**: 매년 실제 관측된 평균 기온입니다. (변동이 심함)
+    - **주황색 선**: 통계적으로 계산된 추세선입니다. 
+    - 분석 결과, 지난 {total_years}년 동안 기온은 약 **{temp_change:.1f}도** {trend_text}이 확인됩니다.
+    """)
+
+    # 3. 데이터 보기 (접기/펴기)
+    with st.expander("📊 연도별 상세 데이터 보기"):
+        st.dataframe(df_yearly.style.format("{:.2f}"))
